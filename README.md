@@ -14,9 +14,11 @@ authenticated Bootstrap 5 file-management tab for the OTA Suite web interface.
 | D2 | 5 |
 | D3 | 6 |
 
-GPIOs can be changed in menuconfig under **SD Card Manager**. Use suitable
-external pull-ups on the SDMMC bus; internal pull-ups are enabled only as a
-debug fallback and do not replace board-level pull-ups.
+GPIOs and the SDMMC clock can be changed in menuconfig under **SD Card Manager**.
+The default clock is 10 MHz to favor reliability on jumper-wire setups; lower it
+further if the signal wiring is long or file operations remain intermittent.
+Use suitable external pull-ups on the SDMMC bus; internal pull-ups are enabled
+only as a debug fallback and do not replace board-level pull-ups.
 
 ## Filesystem and data safety
 
@@ -34,6 +36,10 @@ Add this package's `components` directory to `EXTRA_COMPONENT_DIRS`, require
 the **SD-Karte** tab with the OTA Suite shared Bootstrap UI and starts a
 non-blocking card retry task. A card that is unavailable does not prevent the
 firmware or OTA services from starting.
+
+Free-space check failures are retried before unmounting; three consecutive
+failures are required before the component marks the card unavailable and
+attempts a remount.
 
 The configured mount point defaults to `/sdcard`. HTTP operations are protected
 by the shared Basic authentication and CSRF token. The browser supports folder

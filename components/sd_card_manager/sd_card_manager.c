@@ -34,11 +34,13 @@ extern const unsigned char sd_js_end[] asm("_binary_sd_card_js_end");
 #define MAX_REQUEST 2048
 #define PAGE_SIZE 48
 #define IO_CHUNK 4096
+#define SD_STATUS_FAILURE_LIMIT 3
 
 static const char *TAG = "sd_card";
 static SemaphoreHandle_t storage_lock;
 static sdmmc_card_t *card;
 static sd_card_manager_status_t status;
+static unsigned consecutive_status_failures;
 
 static esp_err_t send_error(httpd_req_t *req, const char *http_status, const char *message)
 {
@@ -603,6 +605,7 @@ static esp_err_t upload_handler(httpd_req_t *req)
 static esp_err_t mount_card(void)
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = CONFIG_SD_CARD_MANAGER_SDMMC_FREQ_KHZ;
     sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
     slot.width = 4;
     slot.clk = CONFIG_SD_CARD_MANAGER_GPIO_CLK;
@@ -635,15 +638,20 @@ static esp_err_t mount_card(void)
     status.total_bytes = (uint64_t)card->csd.capacity * card->csd.sector_size;
     struct statvfs space;
     if (statvfs(SD_MOUNT, &space) != 0) {
-        ESP_LOGE(TAG, "Mounted SD card but cannot query free space (errno %d)", errno);
+        ESP_LOGW(TAG, "Mounted SD card but cannot query free space (errno %d)", errno);
         status.free_bytes = 0;
+        consecutive_status_failures = 1;
+        snprintf(status.message, sizeof(status.message),
+                 "Karte eingebunden; freier Speicher derzeit nicht lesbar.");
     } else {
         status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
+        consecutive_status_failures = 0;
+        strlcpy(status.message, "SD-Karte bereit.", sizeof(status.message));
     }
     status.mounted = true;
-    strlcpy(status.message, "SD-Karte bereit.", sizeof(status.message));
     sdmmc_card_print_info(stdout, card);
-    ESP_LOGI(TAG, "Mounted SD card at %s with 4-bit SDMMC", SD_MOUNT);
+    ESP_LOGI(TAG, "Mounted SD card at %s with 4-bit SDMMC at %d kHz",
+             SD_MOUNT, host.max_freq_khz);
     return ESP_OK;
 }
 
@@ -661,19 +669,32 @@ static void retry_mount_task(void *arg)
         } else {
             struct statvfs space;
             if (statvfs(SD_MOUNT, &space) != 0) {
-                ESP_LOGW(TAG, "SD card disappeared or became unavailable (errno %d)", errno);
-                esp_err_t unmount_err = esp_vfs_fat_sdcard_unmount(SD_MOUNT, card);
-                if (unmount_err != ESP_OK) {
-                    ESP_LOGE(TAG, "Cannot unmount unavailable SD card: %s",
-                             esp_err_to_name(unmount_err));
+                int status_errno = errno;
+                ++consecutive_status_failures;
+                ESP_LOGW(TAG, "SD status check failed (%u/%u, errno %d)",
+                         consecutive_status_failures, SD_STATUS_FAILURE_LIMIT, status_errno);
+                if (consecutive_status_failures < SD_STATUS_FAILURE_LIMIT) {
+                    snprintf(status.message, sizeof(status.message),
+                             "SD-Karte prueft Speicher erneut (%u/%u).",
+                             consecutive_status_failures, SD_STATUS_FAILURE_LIMIT);
+                } else {
+                    esp_err_t unmount_err = esp_vfs_fat_sdcard_unmount(SD_MOUNT, card);
+                    if (unmount_err != ESP_OK) {
+                        ESP_LOGE(TAG, "Cannot unmount unavailable SD card: %s",
+                                 esp_err_to_name(unmount_err));
+                    }
+                    card = NULL;
+                    status.mounted = false;
+                    status.total_bytes = 0;
+                    status.free_bytes = 0;
+                    consecutive_status_failures = 0;
+                    strlcpy(status.message, "SD-Karte getrennt oder nicht lesbar.",
+                            sizeof(status.message));
                 }
-                card = NULL;
-                status.mounted = false;
-                status.total_bytes = 0;
-                status.free_bytes = 0;
-                strlcpy(status.message, "SD-Karte getrennt oder nicht lesbar.", sizeof(status.message));
             } else {
                 status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
+                consecutive_status_failures = 0;
+                strlcpy(status.message, "SD-Karte bereit.", sizeof(status.message));
             }
         }
         xSemaphoreGive(storage_lock);

@@ -1,4 +1,9 @@
 menu "SD Card Manager"
+    config SD_CARD_MANAGER_SDMMC_FREQ_KHZ
+        int "SDMMC clock frequency (kHz)"
+        range 400 20000
+        default 10000
+
     config SD_CARD_MANAGER_MOUNT_POINT
         string "VFS mount point"
         default "/sdcard"
