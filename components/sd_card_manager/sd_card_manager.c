@@ -35,12 +35,16 @@ extern const unsigned char sd_js_end[] asm("_binary_sd_card_js_end");
 #define MAX_REQUEST 2048
 #define PAGE_SIZE 48
 #define IO_CHUNK 4096
-#define CARD_POLL_INTERVAL_MS 1000
+#define CARD_POLL_INTERVAL_MS 250
+#define CARD_DETECT_STABLE_SAMPLES 4
 
 static const char *TAG = "sd_card";
 static SemaphoreHandle_t storage_lock;
 static sdmmc_card_t *card;
 static sd_card_manager_status_t status;
+static bool card_present;
+static bool card_detect_candidate;
+static unsigned card_detect_samples;
 
 static bool refresh_free_space_locked(void)
 {
@@ -60,6 +64,25 @@ static bool refresh_free_space_locked(void)
 static bool card_detected(void)
 {
     return gpio_get_level(CONFIG_SD_CARD_MANAGER_GPIO_CARD_DETECT) == 1;
+}
+
+static bool update_card_detect_locked(void)
+{
+    bool detected = card_detected();
+    if (detected == card_present) {
+        card_detect_candidate = detected;
+        card_detect_samples = 0;
+    } else if (detected != card_detect_candidate) {
+        card_detect_candidate = detected;
+        card_detect_samples = 1;
+    } else if (++card_detect_samples >= CARD_DETECT_STABLE_SAMPLES) {
+        card_present = card_detect_candidate;
+        card_detect_samples = 0;
+        ESP_LOGI(TAG, "Card detect GPIO %d is now %s",
+                 CONFIG_SD_CARD_MANAGER_GPIO_CARD_DETECT,
+                 card_present ? "HIGH (inserted)" : "LOW (removed)");
+    }
+    return card_present;
 }
 
 static void mark_card_unavailable(const char *message)
@@ -226,7 +249,7 @@ static bool lock_storage(httpd_req_t *req)
     }
     if (!status.mounted) {
         char message[sizeof(status.message)];
-        strlcpy(message, card_detected() ? status.message : "Keine SD-Karte erkannt.",
+        strlcpy(message, card_present ? status.message : "Keine SD-Karte erkannt.",
                 sizeof(message));
         xSemaphoreGive(storage_lock);
         send_error(req, "503 Service Unavailable", message);
@@ -243,16 +266,19 @@ static esp_err_t status_handler(httpd_req_t *req)
     if (xSemaphoreTake(storage_lock, pdMS_TO_TICKS(10000)) != pdTRUE) {
         return send_error(req, "503 Service Unavailable", "SD-Status ist beschaeftigt.");
     }
-    if (status.mounted) {
-        refresh_free_space_locked();
-    }
     sd_card_manager_status_t current = status;
+    bool detected = card_present;
+    int detect_level = gpio_get_level(CONFIG_SD_CARD_MANAGER_GPIO_CARD_DETECT);
     xSemaphoreGive(storage_lock);
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         return send_error(req, "500 Internal Server Error", "Nicht genug Speicher.");
     }
     bool ok = cJSON_AddBoolToObject(root, "mounted", current.mounted) &&
+              cJSON_AddBoolToObject(root, "cardDetected", detected) &&
+              cJSON_AddNumberToObject(root, "cardDetectLevel", detect_level) &&
+              cJSON_AddNumberToObject(root, "cardDetectGpio",
+                                      CONFIG_SD_CARD_MANAGER_GPIO_CARD_DETECT) &&
               cJSON_AddBoolToObject(root, "freeSpaceKnown", current.free_space_known) &&
               cJSON_AddNumberToObject(root, "totalBytes", (double)current.total_bytes) &&
               cJSON_AddNumberToObject(root, "freeBytes", (double)current.free_bytes) &&
@@ -744,7 +770,8 @@ static void retry_mount_task(void *arg)
             ESP_LOGE(TAG, "Cannot acquire SD storage lock in retry task");
             continue;
         }
-        if (!card_detected()) {
+        bool present = update_card_detect_locked();
+        if (!present) {
             if (card == NULL || unmount_card_locked()) {
                 mark_card_unavailable("Keine SD-Karte erkannt.");
             } else {
@@ -813,7 +840,9 @@ esp_err_t sd_card_manager_init(void)
         return err;
     }
     xSemaphoreTake(storage_lock, portMAX_DELAY);
-    if (card_detected()) {
+    card_present = card_detected();
+    card_detect_candidate = card_present;
+    if (card_present) {
         mount_card();
     } else {
         mark_card_unavailable("Keine SD-Karte erkannt.");

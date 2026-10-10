@@ -24,9 +24,10 @@
   }
 
   function updateControls() {
-    for (const id of ["sd-new-file", "sd-new-folder", "sd-upload", "sd-refresh"]) {
+    for (const id of ["sd-new-file", "sd-new-folder", "sd-upload"]) {
       byId(id).disabled = busy || !mounted;
     }
+    byId("sd-refresh").disabled = busy;
     byId("sd-next-page").disabled = busy;
   }
 
@@ -52,13 +53,23 @@
     if (!response.ok) throw new Error(await response.text());
     const status = await response.json();
     mounted = status.mounted;
-    byId("sd-status-message").textContent = status.message;
+    const detect = `GPIO ${status.cardDetectGpio}: ${status.cardDetectLevel ? "HIGH" : "LOW"}`;
+    byId("sd-status-message").textContent = `${status.message} (${detect})`;
     byId("sd-capacity").textContent = mounted ?
       (status.freeSpaceKnown ?
         `${formatBytes(status.freeBytes)} frei von ${formatBytes(status.totalBytes)}` :
         `Freier Speicher unbekannt (Gesamt: ${formatBytes(status.totalBytes)})`) :
-      "Speicher nicht verfuegbar";
+      (status.cardDetected ? "Karte erkannt; Einbinden laeuft" : "Speicher nicht verfuegbar");
     updateControls();
+    return status;
+  }
+
+  function clearDirectory() {
+    currentPath = "/";
+    byId("sd-file-list").replaceChildren();
+    byId("sd-item-count").textContent = "";
+    byId("sd-next-page").classList.add("d-none");
+    renderBreadcrumb();
   }
 
   function renderBreadcrumb() {
@@ -283,8 +294,8 @@
 
   byId("sd-refresh").addEventListener("click", async () => {
     try {
-      await loadStatus();
-      if (mounted) await loadDirectory(currentPath, false);
+      const status = await loadStatus();
+      if (status.mounted) await loadDirectory(currentPath, false);
     } catch (error) {
       showError(`Aktualisierung fehlgeschlagen: ${error.message}`);
     }
@@ -301,5 +312,21 @@
   byId("sd-upload").addEventListener("change", (event) => {
     void uploadFiles(Array.from(event.target.files));
   });
+  setInterval(async () => {
+    if (busy || document.visibilityState !== "visible") return;
+    const wasMounted = mounted;
+    try {
+      const status = await loadStatus();
+      if (!wasMounted && status.mounted) {
+        showAction("SD-Karte erkannt und eingebunden.");
+        await loadDirectory("/", false);
+      } else if (wasMounted && !status.mounted) {
+        clearDirectory();
+        showError(status.message);
+      }
+    } catch (error) {
+      showError(`SD-Kartenstatus konnte nicht aktualisiert werden: ${error.message}`);
+    }
+  }, 2000);
   void initialize();
 })();
