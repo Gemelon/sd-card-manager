@@ -37,9 +37,9 @@ the **SD-Karte** tab with the OTA Suite shared Bootstrap UI and starts a
 non-blocking card retry task. A card that is unavailable does not prevent the
 firmware or OTA services from starting.
 
-Free-space check failures are retried before unmounting; three consecutive
-failures are required before the component marks the card unavailable and
-attempts a remount.
+Failure to calculate free space does not mark the card unmounted. The UI reports
+unknown free capacity and uploads proceed to the filesystem, which reports an
+actual no-space error if it cannot accept the data.
 
 The configured mount point defaults to `/sdcard`. HTTP operations are protected
 by the shared Basic authentication and CSRF token. The browser supports folder

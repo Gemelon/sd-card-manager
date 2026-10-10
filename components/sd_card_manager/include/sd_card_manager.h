@@ -6,6 +6,7 @@
 
 typedef struct {
     bool mounted;
+    bool free_space_known;
     uint64_t total_bytes;
     uint64_t free_bytes;
     char message[128];

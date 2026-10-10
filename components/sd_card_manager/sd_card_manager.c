@@ -34,13 +34,26 @@ extern const unsigned char sd_js_end[] asm("_binary_sd_card_js_end");
 #define MAX_REQUEST 2048
 #define PAGE_SIZE 48
 #define IO_CHUNK 4096
-#define SD_STATUS_FAILURE_LIMIT 3
 
 static const char *TAG = "sd_card";
 static SemaphoreHandle_t storage_lock;
 static sdmmc_card_t *card;
 static sd_card_manager_status_t status;
-static unsigned consecutive_status_failures;
+
+static bool refresh_free_space_locked(void)
+{
+    struct statvfs space;
+    if (statvfs(SD_MOUNT, &space) != 0) {
+        int saved_errno = errno;
+        status.free_space_known = false;
+        status.free_bytes = 0;
+        ESP_LOGW(TAG, "Cannot query SD free space (errno %d)", saved_errno);
+        return false;
+    }
+    status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
+    status.free_space_known = true;
+    return true;
+}
 
 static esp_err_t send_error(httpd_req_t *req, const char *http_status, const char *message)
 {
@@ -196,13 +209,20 @@ static esp_err_t status_handler(httpd_req_t *req)
     if (!web_interface_authorize_request(req, false)) {
         return ESP_OK;
     }
-    sd_card_manager_status_t current;
-    sd_card_manager_get_status(&current);
+    if (xSemaphoreTake(storage_lock, pdMS_TO_TICKS(10000)) != pdTRUE) {
+        return send_error(req, "503 Service Unavailable", "SD-Status ist beschaeftigt.");
+    }
+    if (status.mounted) {
+        refresh_free_space_locked();
+    }
+    sd_card_manager_status_t current = status;
+    xSemaphoreGive(storage_lock);
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         return send_error(req, "500 Internal Server Error", "Nicht genug Speicher.");
     }
     bool ok = cJSON_AddBoolToObject(root, "mounted", current.mounted) &&
+              cJSON_AddBoolToObject(root, "freeSpaceKnown", current.free_space_known) &&
               cJSON_AddNumberToObject(root, "totalBytes", (double)current.total_bytes) &&
               cJSON_AddNumberToObject(root, "freeBytes", (double)current.free_bytes) &&
               cJSON_AddStringToObject(root, "message", current.message);
@@ -542,46 +562,76 @@ static esp_err_t upload_handler(httpd_req_t *req)
     snprintf(temporary, sizeof(temporary), "%s.upload-%08" PRIx32, path, esp_random());
     if (!lock_storage(req)) return ESP_OK;
     struct statvfs space;
-    if (stat(path, &(struct stat){0}) == 0) {
+    struct stat target;
+    if (stat(path, &target) == 0) {
         xSemaphoreGive(storage_lock);
         return send_error(req, "409 Conflict", "Zieldatei existiert bereits.");
     }
-    if (errno != ENOENT || statvfs(SD_MOUNT, &space) != 0 ||
-        (uint64_t)req->content_len > (uint64_t)space.f_bavail * space.f_frsize) {
+    int target_errno = errno;
+    if (target_errno != ENOENT) {
         xSemaphoreGive(storage_lock);
-        return send_error(req, "507 Insufficient Storage", "Nicht genug freier Speicher oder Karte nicht verfuegbar.");
+        return send_error(req, "500 Internal Server Error", "Zieldatei konnte nicht geprueft werden.");
+    }
+    errno = 0;
+    bool space_available = statvfs(SD_MOUNT, &space) == 0;
+    int space_errno = space_available ? 0 : errno;
+    if (space_available) {
+        status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
+        status.free_space_known = true;
+        if ((uint64_t)req->content_len > status.free_bytes) {
+            xSemaphoreGive(storage_lock);
+            return send_error(req, "507 Insufficient Storage", "Nicht genug freier Speicher.");
+        }
+    } else {
+        status.free_space_known = false;
+        status.free_bytes = 0;
+        ESP_LOGW(TAG, "Free-space query failed; attempting upload write anyway (errno %d)",
+                 space_errno);
     }
     int fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0664);
     FILE *file = fd >= 0 ? fdopen(fd, "wb") : NULL;
     if (file == NULL) {
+        int open_errno = errno;
         if (fd >= 0) {
             close(fd);
             unlink(temporary);
         }
         xSemaphoreGive(storage_lock);
+        if (open_errno == ENOSPC) {
+            return send_error(req, "507 Insufficient Storage",
+                              "Die SD-Karte meldet keinen ausreichenden Speicherplatz.");
+        }
+        ESP_LOGE(TAG, "Cannot create upload file %s (errno %d)", temporary, open_errno);
         return send_error(req, "500 Internal Server Error", "Temporere Upload-Datei konnte nicht angelegt werden.");
     }
     unsigned char buffer[IO_CHUNK];
     size_t received = 0;
     esp_err_t err = ESP_OK;
+    int io_errno = 0;
     while (received < (size_t)req->content_len) {
         size_t wanted = (size_t)req->content_len - received;
         if (wanted > sizeof(buffer)) {
             wanted = sizeof(buffer);
         }
         int count = httpd_req_recv(req, (char *)buffer, wanted);
-        if (count <= 0 || fwrite(buffer, 1, count > 0 ? (size_t)count : 0, file) !=
-                          (count > 0 ? (size_t)count : 0)) {
+        if (count <= 0) {
             err = ESP_FAIL;
+            break;
+        }
+        if (fwrite(buffer, 1, (size_t)count, file) != (size_t)count) {
+            err = ESP_FAIL;
+            io_errno = errno;
             break;
         }
         received += (size_t)count;
     }
     if (err == ESP_OK && fflush(file) != 0) {
         err = ESP_FAIL;
+        io_errno = errno;
     }
     if (fclose(file) != 0 && err == ESP_OK) {
         err = ESP_FAIL;
+        io_errno = errno;
     }
     if (err == ESP_OK) {
         struct stat target;
@@ -592,10 +642,17 @@ static esp_err_t upload_handler(httpd_req_t *req)
         }
     }
     if (err != ESP_OK) {
-        unlink(temporary);
+        if (unlink(temporary) != 0) {
+            ESP_LOGW(TAG, "Cannot remove incomplete upload file %s (errno %d)", temporary, errno);
+        }
+    } else {
+        refresh_free_space_locked();
     }
     xSemaphoreGive(storage_lock);
     if (err != ESP_OK) {
+        if (io_errno == ENOSPC) {
+            return send_error(req, "507 Insufficient Storage", "Die SD-Karte meldet keinen ausreichenden Speicherplatz.");
+        }
         return mutation_error(req, err);
     }
     httpd_resp_set_status(req, "201 Created");
@@ -628,6 +685,7 @@ static esp_err_t mount_card(void)
         snprintf(message, sizeof(message), "SD-Karte nicht verfuegbar: %s. Es wurde nichts formatiert.",
                  esp_err_to_name(err));
         status.mounted = false;
+        status.free_space_known = false;
         status.total_bytes = 0;
         status.free_bytes = 0;
         strlcpy(status.message, message, sizeof(status.message));
@@ -636,19 +694,10 @@ static esp_err_t mount_card(void)
     }
     card = mounted_card;
     status.total_bytes = (uint64_t)card->csd.capacity * card->csd.sector_size;
-    struct statvfs space;
-    if (statvfs(SD_MOUNT, &space) != 0) {
-        ESP_LOGW(TAG, "Mounted SD card but cannot query free space (errno %d)", errno);
-        status.free_bytes = 0;
-        consecutive_status_failures = 1;
-        snprintf(status.message, sizeof(status.message),
-                 "Karte eingebunden; freier Speicher derzeit nicht lesbar.");
-    } else {
-        status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
-        consecutive_status_failures = 0;
-        strlcpy(status.message, "SD-Karte bereit.", sizeof(status.message));
-    }
     status.mounted = true;
+    status.free_space_known = false;
+    refresh_free_space_locked();
+    strlcpy(status.message, "SD-Karte bereit.", sizeof(status.message));
     sdmmc_card_print_info(stdout, card);
     ESP_LOGI(TAG, "Mounted SD card at %s with 4-bit SDMMC at %d kHz",
              SD_MOUNT, host.max_freq_khz);
@@ -666,36 +715,6 @@ static void retry_mount_task(void *arg)
         }
         if (!status.mounted) {
             mount_card();
-        } else {
-            struct statvfs space;
-            if (statvfs(SD_MOUNT, &space) != 0) {
-                int status_errno = errno;
-                ++consecutive_status_failures;
-                ESP_LOGW(TAG, "SD status check failed (%u/%u, errno %d)",
-                         consecutive_status_failures, SD_STATUS_FAILURE_LIMIT, status_errno);
-                if (consecutive_status_failures < SD_STATUS_FAILURE_LIMIT) {
-                    snprintf(status.message, sizeof(status.message),
-                             "SD-Karte prueft Speicher erneut (%u/%u).",
-                             consecutive_status_failures, SD_STATUS_FAILURE_LIMIT);
-                } else {
-                    esp_err_t unmount_err = esp_vfs_fat_sdcard_unmount(SD_MOUNT, card);
-                    if (unmount_err != ESP_OK) {
-                        ESP_LOGE(TAG, "Cannot unmount unavailable SD card: %s",
-                                 esp_err_to_name(unmount_err));
-                    }
-                    card = NULL;
-                    status.mounted = false;
-                    status.total_bytes = 0;
-                    status.free_bytes = 0;
-                    consecutive_status_failures = 0;
-                    strlcpy(status.message, "SD-Karte getrennt oder nicht lesbar.",
-                            sizeof(status.message));
-                }
-            } else {
-                status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
-                consecutive_status_failures = 0;
-                strlcpy(status.message, "SD-Karte bereit.", sizeof(status.message));
-            }
         }
         xSemaphoreGive(storage_lock);
     }

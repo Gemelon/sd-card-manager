@@ -10,12 +10,14 @@
   let csrfToken = "";
 
   function showError(message) {
+    byId("sd-action-message").classList.add("d-none");
     const element = byId("sd-error");
     element.textContent = message;
     element.classList.remove("d-none");
   }
 
   function showAction(message, isError = false) {
+    byId("sd-error").classList.add("d-none");
     const element = byId("sd-action-message");
     element.textContent = message;
     element.className = `alert ${isError ? "alert-danger" : "alert-success"}`;
@@ -52,7 +54,9 @@
     mounted = status.mounted;
     byId("sd-status-message").textContent = status.message;
     byId("sd-capacity").textContent = mounted ?
-      `${formatBytes(status.freeBytes)} frei von ${formatBytes(status.totalBytes)}` :
+      (status.freeSpaceKnown ?
+        `${formatBytes(status.freeBytes)} frei von ${formatBytes(status.totalBytes)}` :
+        `Freier Speicher unbekannt (Gesamt: ${formatBytes(status.totalBytes)})`) :
       "Speicher nicht verfuegbar";
     updateControls();
   }
