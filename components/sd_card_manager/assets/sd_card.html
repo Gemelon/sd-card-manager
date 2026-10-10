@@ -1,0 +1,50 @@
+<section class="container-fluid px-0" aria-labelledby="sd-title">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h2 id="sd-title" class="h3 mb-1">SD-Kartenverwaltung</h2>
+      <p id="sd-status-message" class="text-body-secondary mb-0">Status wird geladen...</p>
+    </div>
+    <div class="text-end">
+      <div id="sd-capacity" class="small text-body-secondary">Speicher wird geladen...</div>
+      <button id="sd-refresh" class="btn btn-outline-secondary btn-sm mt-2" type="button">Aktualisieren</button>
+    </div>
+  </div>
+
+  <div id="sd-error" class="alert alert-danger d-none" role="alert"></div>
+  <div id="sd-action-message" class="alert alert-info d-none" role="status"></div>
+
+  <div class="card shadow-sm">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <nav id="sd-breadcrumb" aria-label="Verzeichnispfad"></nav>
+      <div class="d-flex flex-wrap gap-2">
+        <button id="sd-new-file" class="btn btn-outline-primary btn-sm" type="button" disabled>Neue Datei</button>
+        <button id="sd-new-folder" class="btn btn-outline-primary btn-sm" type="button" disabled>Neuer Ordner</button>
+        <label class="btn btn-primary btn-sm mb-0">
+          Dateien hochladen
+          <input id="sd-upload" type="file" class="d-none" multiple disabled>
+        </label>
+      </div>
+    </div>
+    <progress id="sd-upload-progress" class="w-100 d-none rounded-0" max="100" value="0"
+              aria-label="Upload-Fortschritt"></progress>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr><th scope="col">Name</th><th scope="col" class="text-end">Groesse</th>
+            <th scope="col" class="text-end">Aktionen</th></tr>
+        </thead>
+        <tbody id="sd-file-list">
+          <tr><td colspan="3" class="text-body-secondary">Verzeichnis wird geladen...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer d-flex justify-content-between align-items-center">
+      <span id="sd-item-count" class="small text-body-secondary"></span>
+      <button id="sd-next-page" class="btn btn-outline-secondary btn-sm d-none" type="button">Weitere anzeigen</button>
+    </div>
+  </div>
+  <p class="small text-body-secondary mt-3">
+    Loeschen ist endgueltig. Ordner koennen nur geloescht werden, wenn sie leer sind.
+    Die SD-Karte wird nicht automatisch formatiert.
+  </p>
+</section>

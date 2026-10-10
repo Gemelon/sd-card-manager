@@ -1,0 +1,35 @@
+menu "SD Card Manager"
+    config SD_CARD_MANAGER_MOUNT_POINT
+        string "VFS mount point"
+        default "/sdcard"
+
+    config SD_CARD_MANAGER_GPIO_CLK
+        int "SDMMC CLK GPIO"
+        range 0 48
+        default 14
+
+    config SD_CARD_MANAGER_GPIO_CMD
+        int "SDMMC CMD GPIO"
+        range 0 48
+        default 15
+
+    config SD_CARD_MANAGER_GPIO_D0
+        int "SDMMC D0 GPIO"
+        range 0 48
+        default 2
+
+    config SD_CARD_MANAGER_GPIO_D1
+        int "SDMMC D1 GPIO"
+        range 0 48
+        default 4
+
+    config SD_CARD_MANAGER_GPIO_D2
+        int "SDMMC D2 GPIO"
+        range 0 48
+        default 5
+
+    config SD_CARD_MANAGER_GPIO_D3
+        int "SDMMC D3 GPIO"
+        range 0 48
+        default 6
+endmenu
