@@ -4,6 +4,11 @@ menu "SD Card Manager"
         range 400 20000
         default 10000
 
+    config SD_CARD_MANAGER_GPIO_CARD_DETECT
+        int "Card-detect GPIO (active high)"
+        range 0 48
+        default 7
+
     config SD_CARD_MANAGER_MOUNT_POINT
         string "VFS mount point"
         default "/sdcard"

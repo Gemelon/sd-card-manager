@@ -16,6 +16,7 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_vfs_fat.h"
+#include "driver/gpio.h"
 #include "driver/sdmmc_host.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -34,6 +35,7 @@ extern const unsigned char sd_js_end[] asm("_binary_sd_card_js_end");
 #define MAX_REQUEST 2048
 #define PAGE_SIZE 48
 #define IO_CHUNK 4096
+#define CARD_POLL_INTERVAL_MS 1000
 
 static const char *TAG = "sd_card";
 static SemaphoreHandle_t storage_lock;
@@ -52,6 +54,34 @@ static bool refresh_free_space_locked(void)
     }
     status.free_bytes = (uint64_t)space.f_bavail * space.f_frsize;
     status.free_space_known = true;
+    return true;
+}
+
+static bool card_detected(void)
+{
+    return gpio_get_level(CONFIG_SD_CARD_MANAGER_GPIO_CARD_DETECT) == 1;
+}
+
+static void mark_card_unavailable(const char *message)
+{
+    status.mounted = false;
+    status.free_space_known = false;
+    status.total_bytes = 0;
+    status.free_bytes = 0;
+    strlcpy(status.message, message, sizeof(status.message));
+}
+
+static bool unmount_card_locked(void)
+{
+    if (card == NULL) {
+        return true;
+    }
+    esp_err_t err = esp_vfs_fat_sdcard_unmount(SD_MOUNT, card);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot unmount SD card: %s", esp_err_to_name(err));
+        return false;
+    }
+    card = NULL;
     return true;
 }
 
@@ -196,7 +226,8 @@ static bool lock_storage(httpd_req_t *req)
     }
     if (!status.mounted) {
         char message[sizeof(status.message)];
-        strlcpy(message, status.message, sizeof(message));
+        strlcpy(message, card_detected() ? status.message : "Keine SD-Karte erkannt.",
+                sizeof(message));
         xSemaphoreGive(storage_lock);
         send_error(req, "503 Service Unavailable", message);
         return false;
@@ -708,13 +739,23 @@ static void retry_mount_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(CARD_POLL_INTERVAL_MS));
         if (xSemaphoreTake(storage_lock, portMAX_DELAY) != pdTRUE) {
             ESP_LOGE(TAG, "Cannot acquire SD storage lock in retry task");
             continue;
         }
-        if (!status.mounted) {
+        if (!card_detected()) {
+            if (card == NULL || unmount_card_locked()) {
+                mark_card_unavailable("Keine SD-Karte erkannt.");
+            } else {
+                mark_card_unavailable("SD-Karte entfernt; Freigabe wird wiederholt.");
+            }
+        } else if (card == NULL) {
             mount_card();
+        } else if (!status.mounted) {
+            if (unmount_card_locked()) {
+                mount_card();
+            }
         }
         xSemaphoreGive(storage_lock);
     }
@@ -749,17 +790,34 @@ esp_err_t sd_card_manager_init(void)
         ESP_LOGE(TAG, "Cannot create SD storage mutex");
         return ESP_ERR_NO_MEM;
     }
-    strlcpy(status.message, "Warte auf SD-Karte.", sizeof(status.message));
-    esp_err_t err = web_interface_register_extension(&extension);
+    const gpio_config_t detect_config = {
+        .pin_bit_mask = 1ULL << CONFIG_SD_CARD_MANAGER_GPIO_CARD_DETECT,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    esp_err_t err = gpio_config(&detect_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot configure SD card-detect GPIO: %s", esp_err_to_name(err));
+        vSemaphoreDelete(storage_lock);
+        storage_lock = NULL;
+        return err;
+    }
+    strlcpy(status.message, "Warte auf SD-Kartenerkennung.", sizeof(status.message));
+    err = web_interface_register_extension(&extension);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Cannot register SD UI extension: %s", esp_err_to_name(err));
         vSemaphoreDelete(storage_lock);
         storage_lock = NULL;
         return err;
     }
-    /* A missing/unformatted card is a visible storage error, not a boot failure. */
     xSemaphoreTake(storage_lock, portMAX_DELAY);
-    mount_card();
+    if (card_detected()) {
+        mount_card();
+    } else {
+        mark_card_unavailable("Keine SD-Karte erkannt.");
+    }
     xSemaphoreGive(storage_lock);
     if (xTaskCreate(retry_mount_task, "sd_mount_retry", 4096, NULL, 2, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Cannot create SD retry task");

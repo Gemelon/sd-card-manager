@@ -13,8 +13,12 @@ authenticated Bootstrap 5 file-management tab for the OTA Suite web interface.
 | D1 | 4 |
 | D2 | 5 |
 | D3 | 6 |
+| Card detect | 7 (active high = card inserted) |
 
 GPIOs and the SDMMC clock can be changed in menuconfig under **SD Card Manager**.
+The card-detect input is configured with a pull-down and polled once per second.
+The card is mounted only while GPIO 7 reads high; removal disables file actions
+and unmounts the filesystem before retrying.
 The default clock is 10 MHz to favor reliability on jumper-wire setups; lower it
 further if the signal wiring is long or file operations remain intermittent.
 Use suitable external pull-ups on the SDMMC bus; internal pull-ups are enabled
