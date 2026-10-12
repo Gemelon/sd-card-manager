@@ -1,0 +1,11 @@
+SD Card Manager
+Copyright 2026 Thomas Stoll
+
+Original package source and documentation are licensed under the Apache
+License, Version 2.0. See LICENSE.
+
+Dependencies supplied by ESP-IDF and OTA Suite retain their own copyrights
+and licenses. See THIRD_PARTY_NOTICES.md and the license list at the end of
+README.md. OTA Suite supplies Bootstrap with its original MIT license.
+
+This NOTICE is informational and does not add conditions to Apache-2.0.

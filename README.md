@@ -1,79 +1,143 @@
+<!-- SPDX-FileCopyrightText: 2026 Thomas Stoll
+     SPDX-License-Identifier: Apache-2.0 -->
+
 # SD Card Manager
 
-Reusable ESP-IDF component for an ESP32-S3 SD card in 4-bit SDMMC mode and an
-authenticated Bootstrap 5 file-management tab for the OTA Suite web interface.
+**Eine SD-Karte im ESP32-Projekt nutzen und ihre Dateien bequem im Browser
+verwalten – ohne die Speicheranbindung jedes Mal neu zu schreiben.**
 
-## Repository, dependencies and licensing
+Dieses Paket entstand für [EBCTester](https://github.com/Gemelon/EBCTester):
+Lange Batterietests sollen ihre Messdaten auch außerhalb des Heim-WLANs
+speichern können. Dafür braucht es lokalen Speicher und eine Oberfläche,
+über die Daten und Sprachdateien erreichbar bleiben.
 
-Clone `https://github.com/Gemelon/sd-card-manager.git`. This repository is
-currently private. The component requires ESP-IDF and OTA Suite's
-`web_interface` component, including its bundled `I18n` browser runtime.
-EBCTester pins both packages as submodules; standalone consumers must supply
-the compatible OTA Suite package through `EXTRA_COMPONENT_DIRS` too.
+Die Kartenanbindung und Dateiverwaltung sind als eigene Komponenten ausgelagert,
+damit sie auch in anderen ESP-IDF-Projekten verwendet werden können.
 
-No license has yet been granted for this package's original source code.
-ESP-IDF and managed `espressif/cjson` retain their upstream licenses
-(Apache-2.0 for IDF's original code and MIT for cJSON). Bootstrap assets are
-provided by OTA Suite, with the license included in that package.
-Do not commit local `sdkconfig`, credentials, measurements or build outputs.
+## Funktionen
 
-## Hardware defaults
+- FAT32-SD-Karten über **4-bit SDMMC oder SPI**.
+- Kartenwechsel-Erkennung, Mount/Unmount und nichtblockierende Wiederholungen.
+- Dateiverwaltung im lokalen Webinterface: Ordner ansehen, Dateien hoch- und
+  herunterladen, anlegen, umbenennen, verschieben und löschen.
+- Gemeinsame Speichersperre für Anwendungen wie SQLite und SD-Sprachdateien.
+- Kein automatisches Formatieren und kein rekursives Löschen gefüllter Ordner.
+- Nicht verfügbare Karten verhindern nicht den Start der restlichen Anwendung.
 
-| SD signal | GPIO |
+## Architektur und Abhängigkeiten
+
+| Repository | Aufgabe |
+| --- | --- |
+| [EBCTester](https://github.com/Gemelon/EBCTester) | Batterietests, Datenbank und Aufzeichnung |
+| [ota-suite](https://github.com/Gemelon/ota-suite) | WLAN und gemeinsames authentifiziertes Webinterface |
+| **sd-card-manager** | Speicheranbindung und Erweiterung dieses Webinterfaces |
+
+Das Paket enthält die Komponente `components/sd_card_manager`.
+Es setzt das `web_interface` der OTA Suite einschließlich `I18n`-Laufzeit
+voraus, aber keinen EBCTester-Code. Die Anwendung bindet beide Komponentenpakete
+über `EXTRA_COMPONENT_DIRS` ein; EBCTester hält ihre Stände als Submodule fest.
+
+## Selbst verwenden und kompilieren
+
+```powershell
+git clone https://github.com/Gemelon/sd-card-manager.git
+git clone https://github.com/Gemelon/ota-suite.git
+```
+
+Beide Repositories sind derzeit privat; ein berechtigtes Konto ist nötig.
+Verwende VS Code mit ESP-IDF-Erweiterung und eine ESP-IDF-Anwendung.
+Die Kombination ist mit **ESP-IDF 6.0.1 / ESP32-S3** getestet.
+Dieses Paket allein ist keine flashbare Anwendung.
+
+1. Beide `components`-Verzeichnisse in `EXTRA_COMPONENT_DIRS` aufnehmen.
+2. `sd_card_manager` und `device_app` als Anwendungsabhängigkeiten angeben.
+3. `sd_card_manager_init()` vor `device_app_start()` aufrufen.
+4. Unter **menuconfig → SD Card Manager** Busmodus, Pins, Takt, Mountpunkt
+   und Kartenerkennung an die Hardware anpassen.
+5. Die eigene Anwendung über **ESP-IDF: Build your project** bauen.
+
+Die Initialisierung registriert den SD-Tab und startet die Kartenprüfung.
+HTTP-Aufrufe nutzen Anmeldung und CSRF-Schutz der OTA Suite.
+Ein SD-Fehler wird gemeldet; die Anwendung kann trotzdem ihr Webinterface starten.
+
+## Hardwarevorgaben
+
+| Signal | SDMMC-GPIO |
 | --- | ---: |
 | CLK | 14 |
 | CMD | 15 |
-| D0 | 2 |
-| D1 | 4 |
-| D2 | 5 |
-| D3 | 6 |
-| Card detect | 7 (active high = card inserted) |
+| D0 / D1 / D2 / D3 | 2 / 4 / 5 / 6 |
+| Kartenerkennung | 7, aktiv HIGH |
 
-GPIOs and the SDMMC clock can be changed in menuconfig under **SD Card Manager**.
-The active-high card-detect input is configured with an internal pull-up and
-polled every 250 ms;
-four consistent readings are required before accepting an insertion/removal.
-The card is mounted only while GPIO 7 reads high; removal disables file actions
-and unmounts the filesystem before retrying. The SD tab refreshes card state
-automatically while open, so a card inserted after startup is mounted and shown
-without a page reload. The tab displays the configured GPIO and its live HIGH/LOW
-level to help verify the detect wire. GPIO internal pull-ups are weak; if the
-line does not reach a stable 3.3 V logic HIGH, add an external pull-up (for
-example 4.7 kOhm to 3.3 V) and ensure the card-detect output is not driven by 5 V.
-The default clock is 10 MHz to favor reliability on jumper-wire setups; lower it
-further if the signal wiring is long or file operations remain intermittent.
-Use suitable external pull-ups on the SDMMC bus; internal pull-ups are enabled
-only as a debug fallback and do not replace board-level pull-ups.
+SPI-Defaults: MISO 2, MOSI 15, CS 6, CLK 14; Kartenerkennung ebenfalls GPIO 7.
+Beide Busse starten mit 10 MHz. Lange Leitungen können einen niedrigeren
+Takt erfordern. Geeignete externe Pull-ups verwenden; interne Pull-ups sind
+kein Ersatz für korrekte Hardware.
 
-## Filesystem and data safety
+Die Kartenerkennung wird alle 250 ms geprüft; vier übereinstimmende Werte
+bestätigen Einstecken oder Entfernen. Bei aktiv-HIGH-Erkennung ist ein stabiler
+3,3-V-Pegel erforderlich. ESP32-Pins niemals mit 5 V ansteuern.
+Der Tab zeigt GPIO und Pegel zur Diagnose.
 
-The component uses the ESP-IDF FatFs integration and expects FAT32 media. ESP-IDF
-6.0.1 ships with exFAT disabled in its bundled FatFs configuration, so exFAT is
-not supported by this component. A missing, unformatted, or unsupported card is
-reported in the web interface; the component never formats a card automatically.
-Format or back up the card separately before use.
+## Dateisystem und Datenzugriff
 
-## Add to an application
+FAT32 verwenden. exFAT ist in der verwendeten ESP-IDF-FatFs-Konfiguration
+deaktiviert und wird nicht unterstützt. Karte separat formatieren und wichtige
+Daten vorher sichern. Der Standard-Mountpunkt ist `/sdcard`.
 
-Add this package's `components` directory to `EXTRA_COMPONENT_DIRS`, require
-`sd_card_manager` from the application component, and call
-`sd_card_manager_init()` before `device_app_start()`. The initializer registers
-the **SD-Karte** tab with the OTA Suite shared Bootstrap UI and starts a
-non-blocking card retry task. A card that is unavailable does not prevent the
-firmware or OTA services from starting.
+Andere Komponenten müssen Zugriffe mit
+`sd_card_manager_storage_acquire()` / `sd_card_manager_storage_release()`
+paaren. Die Sperre verhindert konkurrierende Dateiverwaltung oder Unmount
+während eines geschützten Zugriffs. Ohne verfügbare Karte schlägt Acquire
+explizit fehl. Eine eigene Datenbank ist nicht Bestandteil dieses Pakets.
 
-Failure to calculate free space does not mark the card unmounted. The UI reports
-unknown free capacity and uploads proceed to the filesystem, which reports an
-actual no-space error if it cannot accept the data.
+Fehler bei der Ermittlung freien Speichers markieren die Karte nicht als
+unmounted. Die UI zeigt unbekannte Kapazität; Uploads erhalten tatsächliche
+Dateisystemfehler, etwa bei einer vollen Karte.
 
-The configured mount point defaults to `/sdcard`. HTTP operations are protected
-by the shared Basic authentication and CSRF token. The browser supports folder
-listing, downloads, uploads, empty-file and folder creation, rename/move, and
-deletion. Non-empty folders cannot be deleted, preventing accidental recursive
-data loss.
+Nichtleere Ordner können nicht gelöscht werden. Kartenentnahme und Stromausfall
+können trotzdem Daten beschädigen; Speichersperren ersetzen keine Backups.
+Die lokale HTTP-Oberfläche nur in einem vertrauenswürdigen Netz oder geschützten
+AP nutzen, nicht öffentlich ins Internet stellen.
 
-Other components that access the mounted filesystem should pair
-`sd_card_manager_storage_acquire()` with `sd_card_manager_storage_release()`.
-The shared lock prevents file-manager actions or hot-removal handling from
-unmounting the card during an operation; acquire returns an error while the
-card is unavailable.
+## Tests und Beiträge
+
+Die Integration wird mit dem konsumierenden Projekt getestet; EBCTester hat
+Hosttests für Datenbankschema und lokalisierte UI. Nach Änderungen SDMMC und
+SPI, Kartenwechsel, Dateiaktionen, volle Karten und konkurrierende Speicherzugriffe
+auf Hardware prüfen. Dieses Paket hat keinen eigenen Host-Test-Runner.
+
+Fehlerberichte mit Board, Verdrahtung, SDK-Version und bereinigten Logs sind
+willkommen. Lokale Zugangsdaten, Messdaten, `sdkconfig` und Build-Dateien nicht
+committen. Bei Weitergabe von Firmware auch die Lizenzunterlagen beilegen.
+
+## Lizenz und Urheber
+
+**Copyright 2026 Thomas Stoll.** Ursprünglicher Code und Dokumentation stehen
+unter **[Apache-2.0](LICENSE)**. Siehe [NOTICE](NOTICE).
+Die Lizenz erlaubt auch gewerbliche Nutzung, Änderungen und Verkauf unter
+ihren Bedingungen, ohne Gewährleistung. Geänderte Dateien kennzeichnen und
+bestehende Hinweise erhalten. Formate ohne Kommentare sind in
+[.reuse/dep5](.reuse/dep5) zugeordnet. Fremder Code behält seine eigenen Lizenzen.
+
+## Drittanbieter und ihre Lizenzen
+
+| Bestandteil | Urheber / Herkunft | Lizenz und Hinweise |
+| --- | --- | --- |
+| ESP-IDF 6.0.1 und SD-Treiber | Espressif Systems und weitere Beitragende | Apache-2.0 für den ursprünglichen Espressif-Code – [SDK-Lizenz](third_party/licenses/esp-idf/LICENSE) |
+| FatFs | ChaN | Eigene permissive FatFs-Bedingungen – [Originalhinweis](third_party/licenses/esp-idf/FatFs-NOTICE.txt) |
+| cJSON | Dave Gamble und cJSON contributors | MIT – [Originaltext](third_party/licenses/cjson/LICENSE) |
+| FreeRTOS-Kernel | Amazon.com und Beitragende | MIT – [Originaltext](third_party/licenses/esp-idf/FreeRTOS-LICENSE.md) |
+| C-Laufzeit: Newlib / Picolibc | Verschiedene Autoren | Eigene Bedingungen – [Newlib](third_party/licenses/esp-idf/COPYING.NEWLIB), [Picolibc](third_party/licenses/esp-idf/COPYING.picolibc) |
+| GCC-Laufzeit | Free Software Foundation und Beitragende | GPL-3.0 mit GCC Runtime Library Exception 3.1 – [GPL](third_party/licenses/toolchain/COPYING3), [Ausnahme](third_party/licenses/toolchain/COPYING.RUNTIME) |
+| OTA Suite | Thomas Stoll | Apache-2.0; [Repository und Drittanbieterübersicht](https://github.com/Gemelon/ota-suite#drittanbieter-und-ihre-lizenzen) |
+| Bootstrap 5.3.3, über OTA Suite | The Bootstrap Authors | MIT; vollständiger Text unter `components/web_interface/assets/BOOTSTRAP-LICENSE` im OTA-Suite-Paket |
+| TLSF | Matthew Conte | BSD-3-Clause – [Originalhinweis](third_party/licenses/esp-idf/TLSF-NOTICE.txt) |
+| Weitere SDK-Bestandteile der Gesamtanwendung | Urheber laut ursprünglichen Headern | [Referenzbuild-Hinweise](third_party/licenses/esp-idf/SOURCE-NOTICES.txt) und [Standardtexte](third_party/licenses/standard/); konservativer Umfang, nicht alles wird vom SD-Paket benötigt |
+
+WLAN-, TLS- und Web-Abhängigkeiten der konsumierenden Anwendung sind zusätzlich
+in OTA Suite dokumentiert. Die Versionsauflösung erfolgt über den Lockfile
+dieser Anwendung. Siehe [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) und
+[third_party/licenses/](third_party/licenses/) für Originaltexte und Herkunft.
+Die Projektlizenz ersetzt keine Drittanbieterlizenz; bei neuen Komponenten
+oder SDK-Versionen müssen Hinweise erneut geprüft werden.
