@@ -12,14 +12,14 @@
   function showError(message) {
     byId("sd-action-message").classList.add("d-none");
     const element = byId("sd-error");
-    element.textContent = message;
+    element.textContent = I18n.message(message);
     element.classList.remove("d-none");
   }
 
   function showAction(message, isError = false) {
     byId("sd-error").classList.add("d-none");
     const element = byId("sd-action-message");
-    element.textContent = message;
+    element.textContent = I18n.message(message);
     element.className = `alert ${isError ? "alert-danger" : "alert-success"}`;
   }
 
@@ -29,6 +29,9 @@
     }
     byId("sd-refresh").disabled = busy;
     byId("sd-next-page").disabled = busy;
+    document.querySelectorAll("#sd-file-list button").forEach((button) => {
+      button.disabled = busy || !mounted;
+    });
   }
 
   function formatBytes(value) {
@@ -41,7 +44,7 @@
       amount /= 1024;
       unit += 1;
     } while (amount >= 1024 && unit < units.length - 1);
-    return `${amount.toLocaleString("de-DE", { maximumFractionDigits: 1 })} ${units[unit]}`;
+    return `${amount.toLocaleString(I18n.locale, { maximumFractionDigits: 1 })} ${units[unit]}`;
   }
 
   function apiPath(path) {
@@ -53,13 +56,12 @@
     if (!response.ok) throw new Error(await response.text());
     const status = await response.json();
     mounted = status.mounted;
-    const detect = `GPIO ${status.cardDetectGpio}: ${status.cardDetectLevel ? "HIGH" : "LOW"}`;
-    byId("sd-status-message").textContent = `${status.message} (${detect})`;
+    byId("sd-status-message").textContent = I18n.message(status.message);
     byId("sd-capacity").textContent = mounted ?
       (status.freeSpaceKnown ?
-        `${formatBytes(status.freeBytes)} frei von ${formatBytes(status.totalBytes)}` :
-        `Freier Speicher unbekannt (Gesamt: ${formatBytes(status.totalBytes)})`) :
-      (status.cardDetected ? "Karte erkannt; Einbinden laeuft" : "Speicher nicht verfuegbar");
+        I18n.f("text.84126f0a01b8", {p0: formatBytes(status.freeBytes), p1: formatBytes(status.totalBytes)}) :
+        I18n.f("text.23ed4d3e91ce", {p0: formatBytes(status.totalBytes)})) :
+      (status.cardDetected ? I18n.t("text.1fd5fcb47f1d") : I18n.t("text.f9ec6dbc22e1"));
     updateControls();
     return status;
   }
@@ -88,13 +90,13 @@
       const item = document.createElement("li");
       item.className = `breadcrumb-item${index === paths.length - 1 ? " active" : ""}`;
       if (index === paths.length - 1) {
-        item.textContent = index === 0 ? "SD-Karte" : segments[index - 1];
+        item.textContent = index === 0 ? I18n.t("text.4441b1380b09") : segments[index - 1];
         item.setAttribute("aria-current", "page");
       } else {
         const link = document.createElement("button");
         link.type = "button";
         link.className = "btn btn-link btn-sm p-0 text-decoration-none";
-        link.textContent = index === 0 ? "SD-Karte" : segments[index - 1];
+        link.textContent = index === 0 ? I18n.t("text.4441b1380b09") : segments[index - 1];
         link.addEventListener("click", () => void loadDirectory(path, false));
         item.append(link);
       }
@@ -130,7 +132,7 @@
     }
     const kind = document.createElement("span");
     kind.className = `badge me-2 ${item.directory ? "text-bg-secondary" : "text-bg-light"}`;
-    kind.textContent = item.directory ? "Ordner" : "Datei";
+    kind.textContent = item.directory ? I18n.t("text.33029ba1208b") : I18n.t("text.e9028a569297");
     nameCell.append(kind);
     name.textContent = item.name;
     nameCell.append(name);
@@ -144,8 +146,8 @@
         window.location.assign(`/api/sd/download?path=${encodeURIComponent(fullChildPath(item.name))}`);
       });
     }
-    addActionButton(actions, "Umbenennen", "btn-outline-secondary", () => {
-      const nameValue = prompt("Neuer Name:", item.name);
+    addActionButton(actions, I18n.t("text.83e07ed1f359"), "btn-outline-secondary", () => {
+      const nameValue = prompt(I18n.t("text.eee979486129"), item.name);
       if (!nameValue || nameValue === item.name) return;
       const parent = currentPath === "/" ? "" : currentPath;
       void mutate("/api/sd/move", {
@@ -153,14 +155,14 @@
         destination: `${parent}/${nameValue}`,
       });
     });
-    addActionButton(actions, "Verschieben", "btn-outline-secondary", () => {
-      const destination = prompt("Absoluter Zielpfad, z. B. /Archiv/datei.bin:",
+    addActionButton(actions, I18n.t("text.22f50c5a8ee4"), "btn-outline-secondary", () => {
+      const destination = prompt(I18n.t("text.8e8c5f61bc0e"),
         fullChildPath(item.name));
       if (!destination || destination === fullChildPath(item.name)) return;
       void mutate("/api/sd/move", { source: fullChildPath(item.name), destination });
     });
-    addActionButton(actions, "Loeschen", "btn-outline-danger", () => {
-      if (confirm(`"${item.name}" endgueltig loeschen?`)) {
+    addActionButton(actions, I18n.t("text.3d6a06c0ee0b"), "btn-outline-danger", () => {
+      if (confirm(I18n.f("text.744600080bbb", {p0: item.name}))) {
         void mutate("/api/sd/delete", { path: fullChildPath(item.name) });
       }
     });
@@ -188,17 +190,17 @@
         const cell = document.createElement("td");
         cell.colSpan = 3;
         cell.className = "text-body-secondary";
-        cell.textContent = "Dieser Ordner ist leer.";
+        cell.textContent = I18n.t("text.6f7418e97701");
         empty.append(cell);
         byId("sd-file-list").append(empty);
       }
       byId("sd-item-count").textContent = append ?
-        `${byId("sd-file-list").children.length} Eintraege angezeigt` :
-        `${result.items.length} Eintraege angezeigt`;
+        I18n.f("text.f90524fa2a74", {p0: byId("sd-file-list").children.length}) :
+        I18n.f("text.f90524fa2a74", {p0: result.items.length});
       byId("sd-next-page").classList.toggle("d-none", !hasMore);
       renderBreadcrumb();
     } catch (error) {
-      showError(`Verzeichnis konnte nicht geladen werden: ${error.message}`);
+      showError(I18n.f("text.2584f5ea5d51", {p0: error.message}));
     } finally {
       busy = false;
       updateControls();
@@ -217,13 +219,13 @@
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(await response.text());
-      showAction("Aktion erfolgreich.");
+      showAction(I18n.t("text.9cee3ca2ab3c"));
       busy = false;
       updateControls();
       await loadStatus();
       await loadDirectory(currentPath, false);
     } catch (error) {
-      showError(`Aktion fehlgeschlagen: ${error.message}`);
+      showError(I18n.f("text.38ef4b43090b", {p0: error.message}));
     } finally {
       busy = false;
       updateControls();
@@ -258,19 +260,19 @@
           };
           request.onload = () => request.status >= 200 && request.status < 300 ?
             resolve() : reject(new Error(request.responseText || `HTTP ${request.status}`));
-          request.onerror = () => reject(new Error("Netzwerkfehler waehrend des Uploads."));
+          request.onerror = () => reject(new Error(I18n.t("text.ddb16099cc9c")));
           request.send(file);
         });
       }
       progress.value = 100;
       progress.setAttribute("aria-valuenow", "100");
-      showAction("Upload abgeschlossen.");
+      showAction(I18n.t("text.2d84920ca48f"));
       busy = false;
       updateControls();
       await loadStatus();
       await loadDirectory(currentPath, false);
     } catch (error) {
-      showError(`Upload fehlgeschlagen: ${error.message}`);
+      showError(I18n.f("text.865a23bf84f1", {p0: error.message}));
     } finally {
       progress.classList.add("d-none");
       progress.value = 0;
@@ -288,7 +290,7 @@
       await loadStatus();
       if (mounted) await loadDirectory("/", false);
     } catch (error) {
-      showError(`SD-Kartenstatus konnte nicht geladen werden: ${error.message}`);
+      showError(I18n.f("text.74591589f3bc", {p0: error.message}));
     }
   }
 
@@ -297,16 +299,16 @@
       const status = await loadStatus();
       if (status.mounted) await loadDirectory(currentPath, false);
     } catch (error) {
-      showError(`Aktualisierung fehlgeschlagen: ${error.message}`);
+      showError(I18n.f("text.80633d9a8235", {p0: error.message}));
     }
   });
   byId("sd-next-page").addEventListener("click", () => void loadDirectory(currentPath, true));
   byId("sd-new-file").addEventListener("click", () => {
-    const name = prompt("Name der neuen leeren Datei:");
+    const name = prompt(I18n.t("text.c2d93bac27b5"));
     if (name) void mutate("/api/sd/create", { path: currentPath, name });
   });
   byId("sd-new-folder").addEventListener("click", () => {
-    const name = prompt("Name des neuen Ordners:");
+    const name = prompt(I18n.t("text.ee3c64d896b8"));
     if (name) void mutate("/api/sd/mkdir", { path: fullChildPath(name) });
   });
   byId("sd-upload").addEventListener("change", (event) => {
@@ -318,14 +320,14 @@
     try {
       const status = await loadStatus();
       if (!wasMounted && status.mounted) {
-        showAction("SD-Karte erkannt und eingebunden.");
+        showAction(I18n.t("text.6be9409e8b9c"));
         await loadDirectory("/", false);
       } else if (wasMounted && !status.mounted) {
         clearDirectory();
         showError(status.message);
       }
     } catch (error) {
-      showError(`SD-Kartenstatus konnte nicht aktualisiert werden: ${error.message}`);
+      showError(I18n.f("text.f40816271503", {p0: error.message}));
     }
   }, 2000);
   void initialize();
