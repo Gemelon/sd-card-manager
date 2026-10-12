@@ -4,12 +4,12 @@
 <section class="container-fluid px-0" aria-labelledby="sd-title">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-      <h2 id="sd-title" class="h3 mb-1"><span data-i18n="text.975bcea3fde8">SD-Kartenverwaltung</span></h2>
-      <p id="sd-status-message" class="text-body-secondary mb-0"><span data-i18n="text.64644e4d08ab">Status wird geladen...</span></p>
+      <h2 id="sd-title" class="h3 mb-1"><span data-i18n="text.975bcea3fde8">SD card management</span></h2>
+      <p id="sd-status-message" class="text-body-secondary mb-0"><span data-i18n="text.64644e4d08ab">Loading status...</span></p>
     </div>
     <div class="text-end">
-      <div id="sd-capacity" class="small text-body-secondary"><span data-i18n="text.6438bdf0cd24">Speicher wird geladen...</span></div>
-      <button id="sd-refresh" class="btn btn-outline-secondary btn-sm mt-2" type="button"><span data-i18n="text.96bf0098166f">Aktualisieren</span></button>
+      <div id="sd-capacity" class="small text-body-secondary"><span data-i18n="text.6438bdf0cd24">Loading storage...</span></div>
+      <button id="sd-refresh" class="btn btn-outline-secondary btn-sm mt-2" type="button"><span data-i18n="text.96bf0098166f">Refresh</span></button>
     </div>
   </div>
 
@@ -18,36 +18,31 @@
 
   <div class="card shadow-sm">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-      <nav id="sd-breadcrumb" aria-label="Verzeichnispfad" data-i18n-attrs="aria-label:text.8d2e2fd7d480"></nav>
+      <nav id="sd-breadcrumb" aria-label="Directory path" data-i18n-attrs="aria-label:text.8d2e2fd7d480"></nav>
       <div class="d-flex flex-wrap gap-2">
-        <button id="sd-new-file" class="btn btn-outline-primary btn-sm" type="button" disabled><span data-i18n="text.2a50bcebba7a">Neue Datei</span></button>
-        <button id="sd-new-folder" class="btn btn-outline-primary btn-sm" type="button" disabled><span data-i18n="text.8db66921d50b">Neuer Ordner</span></button>
-        <label class="btn btn-primary btn-sm mb-0"><span data-i18n="text.5a796041cdf4">
-          Dateien hochladen
-          </span><input id="sd-upload" type="file" class="d-none" multiple disabled>
+        <button id="sd-new-file" class="btn btn-outline-primary btn-sm" type="button" disabled><span data-i18n="text.2a50bcebba7a">New file</span></button>
+        <button id="sd-new-folder" class="btn btn-outline-primary btn-sm" type="button" disabled><span data-i18n="text.8db66921d50b">New folder</span></button>
+        <label class="btn btn-primary btn-sm mb-0"><span data-i18n="text.5a796041cdf4">Upload files</span><input id="sd-upload" type="file" class="d-none" multiple disabled>
         </label>
       </div>
     </div>
     <progress id="sd-upload-progress" class="w-100 d-none rounded-0" max="100" value="0"
-              aria-label="Upload-Fortschritt" data-i18n-attrs="aria-label:text.b53f03fd4605"></progress>
+              aria-label="Upload progress" data-i18n-attrs="aria-label:text.b53f03fd4605"></progress>
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
         <thead>
-          <tr><th scope="col">Name</th><th scope="col" class="text-end"><span data-i18n="text.de4ef36c6d1e">Groesse</span></th>
-            <th scope="col" class="text-end"><span data-i18n="text.5656f92db78d">Aktionen</span></th></tr>
+          <tr><th scope="col">Name</th><th scope="col" class="text-end"><span data-i18n="text.de4ef36c6d1e">Size</span></th>
+            <th scope="col" class="text-end"><span data-i18n="text.5656f92db78d">Actions</span></th></tr>
         </thead>
         <tbody id="sd-file-list">
-          <tr><td colspan="3" class="text-body-secondary"><span data-i18n="text.a0027aef0d1c">Verzeichnis wird geladen...</span></td></tr>
+          <tr><td colspan="3" class="text-body-secondary"><span data-i18n="text.a0027aef0d1c">Loading directory...</span></td></tr>
         </tbody>
       </table>
     </div>
     <div class="card-footer d-flex justify-content-between align-items-center">
       <span id="sd-item-count" class="small text-body-secondary"></span>
-      <button id="sd-next-page" class="btn btn-outline-secondary btn-sm d-none" type="button"><span data-i18n="text.6be5a55dcbe1">Weitere anzeigen</span></button>
+      <button id="sd-next-page" class="btn btn-outline-secondary btn-sm d-none" type="button"><span data-i18n="text.6be5a55dcbe1">Show more</span></button>
     </div>
   </div>
-  <p class="small text-body-secondary mt-3"><span data-i18n="text.46201f9a2ca5">
-    Loeschen ist endgueltig. Ordner koennen nur geloescht werden, wenn sie leer sind.
-    Die SD-Karte wird nicht automatisch formatiert.
-  </span></p>
+  <p class="small text-body-secondary mt-3"><span data-i18n="text.46201f9a2ca5">Deletion is permanent. Only empty folders can be deleted. The SD card is not formatted automatically.</span></p>
 </section>
