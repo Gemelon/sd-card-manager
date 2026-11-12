@@ -81,7 +81,8 @@ static bool refresh_free_space_locked(void)
 
 static bool card_detected(void)
 {
-    return runtime.card_detect_gpio < 0 || gpio_get_level(runtime.card_detect_gpio) == 1;
+    return runtime.card_detect_gpio < 0 ||
+           gpio_get_level(runtime.card_detect_gpio) == (runtime.card_detect_active_high ? 1 : 0);
 }
 
 static bool update_card_detect_locked(void)
@@ -98,7 +99,7 @@ static bool update_card_detect_locked(void)
         card_detect_samples = 0;
         ESP_LOGI(TAG, "Card detect GPIO %d is now %s",
                  runtime.card_detect_gpio,
-                 card_present ? "HIGH (inserted)" : "LOW (removed)");
+                 card_present ? "inserted" : "removed");
     }
     return card_present;
 }

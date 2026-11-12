@@ -24,9 +24,17 @@ menu "SD Card Manager"
         default 10000
 
     config SD_CARD_MANAGER_GPIO_CARD_DETECT
-        int "Card-detect GPIO (active high)"
-        range 0 48
+        int "Card-detect GPIO (-1: not connected)"
+        range -1 48
         default 7
+
+    config SD_CARD_MANAGER_CARD_DETECT_ACTIVE_HIGH
+        bool "Card detect active high (off: active low)"
+        default n
+        help
+            Enable if the input is high when a card is inserted.
+            Disabled by default: a low input indicates an inserted card.
+            Ignored when the card-detect GPIO is -1.
 
     config SD_CARD_MANAGER_MOUNT_POINT
         string "VFS mount point"

@@ -66,15 +66,21 @@ application can still start its web interface.
 | CLK | 14 |
 | CMD | 15 |
 | D0 / D1 / D2 / D3 | 2 / 4 / 5 / 6 |
-| Card detect | 7, active HIGH |
+| Card detect | 7, active LOW |
 
 SPI defaults: MISO 2, MOSI 15, CS 6, CLK 14; card detect remains GPIO 7.
 Both modes default to 10 MHz. Long wiring may need lower clocks. Use external
 pull-ups; internal pull-ups do not replace correct hardware.
 
 Detection polls every 250 ms; four consistent readings confirm insertion or
-removal. Active-HIGH detection needs a stable 3.3 V level. Never drive ESP32
-pins with 5 V. The UI displays the detection GPIO and its live level.
+removal. Detection defaults to active LOW; enable **Card detect active high
+(off: active low)** in menuconfig for active-HIGH wiring. Applications pass the
+selected polarity through `sd_card_manager_config_t.card_detect_active_high`
+(`false` = active LOW, `true` = active HIGH) before initialization, along with
+the other runtime settings. GPIO `-1` disables detection and assumes a card is
+present. The detect input uses an internal pull-up; active-HIGH circuits must
+drive a stable low level when no card is present. Never drive ESP32 pins with
+5 V. The UI displays the detection GPIO and its live level.
 
 ## Filesystem and storage access
 

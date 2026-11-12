@@ -26,6 +26,7 @@ typedef struct {
     bool enabled;
     unsigned frequency_khz;
     int card_detect_gpio;
+    bool card_detect_active_high;
     int clk_gpio, cmd_gpio, d0_gpio, d1_gpio, d2_gpio, d3_gpio;
     int spi_miso_gpio, spi_mosi_gpio, spi_cs_gpio, spi_clk_gpio;
     char mount_point[64];
